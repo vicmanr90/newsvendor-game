@@ -1,231 +1,282 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // --- PARÁMETROS ECONÓMICOS ---
-    const costoCompra = 1500;
-    const precioVenta = 2500;
-    const valorSobrante = 500;
-    const costoVentaPerdida = 800;
+// --- Referencias a los elementos del DOM ---
+const subtitle = document.getElementById('subtitle');
+const configSection = document.getElementById('config-section');
+const distributionSelect = document.getElementById('distribution-select');
+const paramsContainer = document.getElementById('params-container');
+const submitContainer = document.getElementById('submit-container');
+const submitBtn = document.getElementById('submit-btn');
 
-    // --- ESTADO DEL JUEGO ---
-    let semanaActual = 1;
-    let gananciaAcumulada = 0;
-    let juegoIniciado = false;
-    let prng;
-    let configSimulacion = {};
+const seedSection = document.getElementById('seed-section');
+const seedSection2 = document.getElementById('seed-section2');
+const resultsDisplay = document.getElementById('results-display');
+const seedContainer = document.getElementById('seed-container');
+const seedInput = document.getElementById('seed-input');
+const setSeedBtn = document.getElementById('set-seed-btn');
 
-    // --- ELEMENTOS DEL DOM ---
-    const semillaInput = document.getElementById('semilla');
-    const tipoDistroSelect = document.getElementById('tipo-distribucion');
-    const btnIniciarJuego = document.getElementById('btn-iniciar-juego');
-    const panelConfiguracion = document.getElementById('panel-configuracion');
-    const panelJuego = document.getElementById('panel-juego');
-    const numeroSemanaEl = document.getElementById('numero-semana');
-    const gananciaAcumuladaEl = document.getElementById('ganancia-acumulada');
-    const pedidoUsuarioInput = document.getElementById('pedido-usuario');
-    const btnPedir = document.getElementById('btn-pedir');
-    const textoResultadosEl = document.getElementById('texto-resultados');
-    const tablaHistorialBody = document.querySelector('#tabla-historial tbody');
+const startGameContainer = document.getElementById('start-game-container');
+const startGameBtn = document.getElementById('start-game-btn');
 
-    // --- LÓGICA DE CONFIGURACIÓN ---
-    
-    // Muestra dinámicamente los parámetros correctos al cambiar la selección
-    tipoDistroSelect.addEventListener('change', () => {
-        document.querySelectorAll('.params-container').forEach(el => el.classList.add('hidden'));
-        const selected = tipoDistroSelect.value;
-        document.getElementById(`params-${selected}`).classList.remove('hidden');
-    });
+const gameSection = document.getElementById('game-section');
+const weekCounterDisplay = document.getElementById('week-counter');
+const orderInput = document.getElementById('order-input');
+const submitOrderBtn = document.getElementById('submit-order-btn');
+const weeklyResultsDisplay = document.getElementById('weekly-results-display');
+const totalProfitDisplay = document.getElementById('total-profit-display');
+const historyTableBody = document.getElementById('history-table-body');
+const exportBtn = document.getElementById('export-btn');
 
-    btnIniciarJuego.addEventListener('click', iniciarJuego);
+// --- Almacenamiento de estado y Parámetros del juego ---
+let finalConfig = {};
+let prng;
+let weekCounter = 1;
+let totalProfit = 0;
+const PRECIO_VENTA = 25;
+const COSTO_COMPRA = 10;
+const VALOR_SOBRANTE = 5;
+const COSTO_VENTA_PERDIDA = PRECIO_VENTA - COSTO_COMPRA;
 
-    function iniciarJuego() {
-        const semilla = parseInt(semillaInput.value);
-        if (isNaN(semilla)) {
-            alert("Por favor, ingresa una semilla numérica válida.");
-            return;
-        }
-        
-        prng = createPRNG(semilla);
-        
-        configSimulacion.distribucion = tipoDistroSelect.value;
-        // Lee los parámetros de la distribución seleccionada
-        switch (configSimulacion.distribucion) {
-            case 'uniforme':
-                configSimulacion.min = parseInt(document.getElementById('unif-min').value);
-                configSimulacion.max = parseInt(document.getElementById('unif-max').value);
-                break;
-            case 'normal':
-                configSimulacion.mu = parseFloat(document.getElementById('norm-mu').value);
-                configSimulacion.sigma = parseFloat(document.getElementById('norm-sigma').value);
-                break;
-            case 'normal-truncada':
-                configSimulacion.mu = parseFloat(document.getElementById('trunc-mu').value);
-                configSimulacion.sigma = parseFloat(document.getElementById('trunc-sigma').value);
-                configSimulacion.min = parseInt(document.getElementById('trunc-min').value);
-                configSimulacion.max = parseInt(document.getElementById('trunc-max').value);
-                break;
-            case 'laplace': // Nuevo caso para Laplace
-                configSimulacion.mu = parseFloat(document.getElementById('laplace-mu').value);
-                configSimulacion.b = parseFloat(document.getElementById('laplace-b').value);
-                break;
-        }
+// --- Generador de Números Pseudo-Aleatorios (PRNG) con Semilla (LCG) ---
+function createSeededRandom(seed) {
+    let s = seed;
+    return () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+}
 
-        // Bloquea la configuración y activa el panel de juego
-        panelConfiguracion.classList.add('disabled');
-        document.querySelectorAll('#panel-configuracion input, #panel-configuracion select, #panel-configuracion button').forEach(el => el.disabled = true);
-        
-        panelJuego.classList.remove('disabled');
-        pedidoUsuarioInput.disabled = false;
-        btnPedir.disabled = false;
-        
-        juegoIniciado = true;
-        textoResultadosEl.innerHTML = "<p>¡Juego iniciado! Ingresa tu primer pedido.</p>";
-    }
+// --- Funciones de generación de demanda ---
+function generateNormal(mean, stddev) {
+    let u1, u2;
+    do { u1 = prng(); } while (u1 === 0);
+    u2 = prng();
+    return (Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2)) * stddev + mean;
+}
 
-    // --- LÓGICA PRINCIPAL DEL JUEGO ---
-    btnPedir.addEventListener('click', jugarSemana);
-
-    function jugarSemana() {
-        if (!juegoIniciado) return;
-        const pedidoUsuario = parseInt(pedidoUsuarioInput.value);
-
-        if (isNaN(pedidoUsuario) || pedidoUsuario < 0) {
-            alert("Por favor, ingresa un número válido para tu pedido.");
-            return;
-        }
-
-        const demandaSemana = generarDemanda();
-        const unidadesVendidas = Math.min(pedidoUsuario, demandaSemana);
-        const unidadesSobrantes = Math.max(0, pedidoUsuario - demandaSemana);
-        const demandaInsatisfecha = Math.max(0, demandaSemana - pedidoUsuario);
-
-        const costoTotalCompra = pedidoUsuario * costoCompra;
-        const ingresoPorVentas = unidadesVendidas * precioVenta;
-        const ingresoPorSobrantes = unidadesSobrantes * valorSobrante;
-        const costoTotalVentaPerdida = demandaInsatisfecha * costoVentaPerdida;
-
-        const gananciaSemana = (ingresoPorVentas + ingresoPorSobrantes) - costoTotalCompra - costoTotalVentaPerdida;
-        gananciaAcumulada += gananciaSemana;
-
-        const registroSemana = {
-            semana: semanaActual, pedido: pedidoUsuario, demanda: demandaSemana,
-            ingresos: ingresoPorVentas + ingresoPorSobrantes, costoCompra: costoTotalCompra,
-            costoVentaPerdida: costoTotalVentaPerdida, ganancia: gananciaSemana
-        };
-
-        actualizarResultados(registroSemana, unidadesVendidas, unidadesSobrantes, demandaInsatisfecha);
-        actualizarHistorial(registroSemana);
-        actualizarPanelPrincipal();
-
-        semanaActual++;
-        numeroSemanaEl.textContent = semanaActual;
-        pedidoUsuarioInput.value = '';
-    }
-    
-    // --- GENERACIÓN DE DEMANDA ---
-    function generarDemanda() {
-        let demanda;
-        switch (configSimulacion.distribucion) {
-            case 'uniforme':
-                demanda = prng.random() * (configSimulacion.max - configSimulacion.min) + configSimulacion.min;
-                break;
-            case 'normal':
-                demanda = generarNormal(configSimulacion.mu, configSimulacion.sigma);
-                break;
-            case 'normal-truncada':
-                demanda = generarNormalTruncada(configSimulacion.mu, configSimulacion.sigma, configSimulacion.min, configSimulacion.max);
-                break;
-            case 'laplace': // Nuevo caso para Laplace
-                demanda = generarLaplace(configSimulacion.mu, configSimulacion.b);
-                break;
-        }
-        return Math.round(Math.max(0, demanda));
-    }
-
-    // --- FUNCIONES DE UTILIDAD Y FORMATO ---
-    function formatearMoneda(valor) {
-        return valor.toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 });
-    }
-
-    function actualizarResultados(r, vendidas, sobrantes, insatisfecha) {
-        textoResultadosEl.innerHTML = `
-            <p>Demanda de la semana: <strong>${r.demanda}</strong> unidades.</p>
-            <p>Unidades vendidas: <strong>${vendidas}</strong>.</p>
-            <p>Unidades sobrantes: <strong>${sobrantes}</strong>.</p>
-            <hr>
-            <p>Ingreso por Ventas: <strong>${formatearMoneda(vendidas * precioVenta)}</strong></p>
-            <p>Ingreso por Sobrantes: <strong>${formatearMoneda(sobrantes * valorSobrante)}</strong></p>
-            <p style="color: red;">Costo de Compra: <strong>-${formatearMoneda(r.costoCompra)}</strong></p>
-            <p style="color: red;">Costo por Ventas Perdidas: <strong>-${formatearMoneda(r.costoVentaPerdida)}</strong></p>
-            <p><strong>Ganancia de la semana: ${formatearMoneda(r.ganancia)}</strong></p>
-            ${insatisfecha > 0 ? `<p style="color: darkorange;">Dejaste de vender <strong>${insatisfecha}</strong> unidades por falta de stock.</p>` : ''}
-        `;
-    }
-
-    function actualizarHistorial(r) {
-        const fila = document.createElement('tr');
-        fila.innerHTML = `
-            <td>${r.semana}</td> <td>${r.pedido}</td> <td>${r.demanda}</td>
-            <td>${formatearMoneda(r.ingresos)}</td> <td>${formatearMoneda(r.costoCompra)}</td>
-            <td style="color:red;">${formatearMoneda(r.costoVentaPerdida)}</td>
-            <td>${formatearMoneda(r.ganancia)}</td>
-        `;
-        tablaHistorialBody.appendChild(fila);
-    }
-
-    function actualizarPanelPrincipal() {
-        gananciaAcumuladaEl.textContent = formatearMoneda(gananciaAcumulada);
-        gananciaAcumuladaEl.className = gananciaAcumulada >= 0 ? 'positivo' : 'negativo';
-    }
-    
-    // --- GENERADOR DE NÚMEROS ALEATORIOS Y DISTRIBUCIONES ---
-
-    function createPRNG(seed) {
-        let currentSeed = seed % 2147483647;
-        if (currentSeed <= 0) currentSeed += 2147483646;
-        return {
-            random: function() {
-                currentSeed = currentSeed * 16807 % 2147483647;
-                return (currentSeed - 1) / 2147483646;
-            }
-        };
-    }
-
-    let spareNormal = null;
-    function generarNormal(mu, sigma) {
-        let val, u, v, s;
-        if (spareNormal !== null) {
-            val = spareNormal;
-            spareNormal = null;
-        } else {
+function generateDemand() {
+    const p = finalConfig.parameters;
+    let demand;
+    switch(finalConfig.distribution) {
+        case 'uniform':
+            demand = p.min + (p.max - p.min) * prng();
+            break;
+        case 'normal':
+            demand = generateNormal(p.mean, p.stddev);
+            break;
+        case 'laplace':
+            const u = prng(); // Generate uniform random number between 0 and 1
+            // Inverse CDF for Laplace: μ - b * sign(u - 0.5) * ln(1 - 2|u - 0.5|)
+            const term = u - 0.5;
+            demand = p.mean - p.b * Math.sign(term) * Math.log(1 - 2 * Math.abs(term));
+            break;
+        case 'trunc-normal':
+            let attempts = 0;
             do {
-                u = prng.random() * 2 - 1;
-                v = prng.random() * 2 - 1;
-                s = u * u + v * v;
-            } while (s >= 1 || s === 0);
-            const mul = Math.sqrt(-2.0 * Math.log(s) / s);
-            val = u * mul;
-            spareNormal = v * mul;
-        }
-        return val * sigma + mu;
+                demand = generateNormal(p.normal_mean, p.normal_stddev);
+                attempts++;
+            } while ((demand < p.normal_min || demand > p.normal_max) && attempts < 100);
+            if (attempts >= 100) demand = (p.normal_min + p.normal_max) / 2; // Fallback
+            break;
+    }
+    return Math.max(0, Math.round(demand)); // La demanda no puede ser negativa
+}
+
+// --- Funciones de formato y UI ---
+const formatearMoneda = (valor) => valor.toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 });
+
+function updateResultsDisplay() {
+    let resultsHTML = `<h4 class="font-bold text-md mb-2">Configuración de Demanda:</h4>`;
+    const distText = distributionSelect.options[distributionSelect.selectedIndex].text;
+    resultsHTML += `<p><strong>Distribución:</strong> ${distText}</p>`;
+    // Mostrar parámetros específicos según la distribución
+    if (finalConfig.distribution === 'uniform') {
+        resultsHTML += `<p><strong>Min:</strong> ${finalConfig.parameters.min}, <strong>Max:</strong> ${finalConfig.parameters.max}</p>`;
+    } else if (finalConfig.distribution === 'normal') {
+        resultsHTML += `<p><strong>Media (μ):</strong> ${finalConfig.parameters.mean}, <strong>Desviación estándar (σ):</strong> ${finalConfig.parameters.stddev}</p>`;
+    } else if (finalConfig.distribution === 'laplace') {
+        resultsHTML += `<p><strong>Media (μ):</strong> ${finalConfig.parameters.mean}, <strong>Escala (b):</strong> ${finalConfig.parameters.b}</p>`;
+    } else if (finalConfig.distribution === 'trunc-normal') {
+        resultsHTML += `<p><strong>Media (μ):</strong> ${finalConfig.parameters.normal_mean}, <strong>Desviación Estándar (σ):</strong> ${finalConfig.parameters.normal_stddev}, <strong>Mín <i>(a)</i>:</strong> ${finalConfig.parameters.normal_min}, <strong>Máx <i>(b)</i>:</strong> ${finalConfig.parameters.normal_max}</p>`;
+    }
+    if (finalConfig.seed !== undefined) {
+            resultsHTML += `<p><strong>Semilla:</strong> ${finalConfig.seed}</p>`;
+    }
+    resultsDisplay.innerHTML = resultsHTML;
+}
+
+// --- Lógica del Flujo de la Aplicación ---
+// PASO 1: Configurar distribución
+distributionSelect.addEventListener('change', (e) => {
+    const selectedValue = e.target.value;
+    paramsContainer.querySelectorAll('[id$="-params"]').forEach(p => p.classList.add('hidden'));
+    if (selectedValue) {
+        document.getElementById(`${selectedValue}-params`).classList.remove('hidden');
+        submitContainer.classList.remove('hidden');
+    } else {
+        submitContainer.classList.add('hidden');
+    }
+});
+
+submitBtn.addEventListener('click', () => {
+    const selectedDistribution = distributionSelect.value;
+    if (!selectedDistribution) return;
+
+    const parameters = {};
+    const visiblePanel = document.getElementById(`${selectedDistribution}-params`);
+    const inputs = visiblePanel.querySelectorAll('.param-input');
+    const defaultValues = {'uniform-min':'10','uniform-max':'50','normal-mean':'30','normal-stddev':'5','trunc-normal-mean':'30','trunc-normal-stddev':'10','trunc-normal-min':'0','trunc-normal-max':'1000','laplace-mean':'30', 'laplace-b':'10'};
+    inputs.forEach(input => {
+        if (!input.value.trim()) input.value = defaultValues[input.id] || '0';
+        const key = input.id.substring(input.id.indexOf('-') + 1).replace('-', '_');
+        parameters[key] = parseFloat(input.value);
+    });
+    // Imprimir los parámetros para depuración
+    console.log('Parámetros seleccionados:', parameters);
+    
+    finalConfig = { distribution: selectedDistribution, parameters };
+    configSection.classList.add('hidden');
+    seedSection2.classList.remove('hidden');
+    seedSection.classList.remove('hidden');
+    updateResultsDisplay();
+});
+
+// PASO 2: Fijar la semilla
+function handleSeedSubmit() {
+    let seedValue = parseInt(seedInput.value, 10);
+    if (isNaN(seedValue)) seedValue = new Date().getTime();
+    finalConfig.seed = seedValue;
+    seedInput.value = seedValue;
+    
+    prng = createSeededRandom(finalConfig.seed);
+
+    seedInput.disabled = true;
+    setSeedBtn.disabled = true;
+    updateResultsDisplay();
+    startGameContainer.classList.remove('hidden');
+}
+setSeedBtn.addEventListener('click', handleSeedSubmit);
+seedInput.addEventListener('keydown', (e) => e.key === 'Enter' && handleSeedSubmit());
+
+// PASO 3: Iniciar el juego
+startGameBtn.addEventListener('click', () => {
+    subtitle.textContent = "Paso 3: Gestiona tu inventario semana a semana.";
+    seedSection.classList.add('hidden');
+    startGameContainer.classList.add('hidden');
+    gameSection.classList.remove('hidden');
+
+    // Mostrar parámetros del negocio
+    document.getElementById('precio-venta-display').textContent = formatearMoneda(PRECIO_VENTA);
+    document.getElementById('costo-compra-display').textContent = formatearMoneda(COSTO_COMPRA);
+    document.getElementById('valor-sobrante-display').textContent = formatearMoneda(VALOR_SOBRANTE);
+});
+
+// PASO 4: Loop del juego (generar pedido)
+function handleOrderSubmit() {
+    const pedido = parseInt(orderInput.value, 10);
+    if (isNaN(pedido) || pedido < 0) {
+        alert("Por favor, ingresa un número de pedido válido.");
+        return;
     }
 
-    function generarNormalTruncada(mu, sigma, min, max) {
-        let val;
-        let attempts = 0;
-        do {
-            val = generarNormal(mu, sigma);
-            attempts++;
-            if (attempts > 100) {
-                console.warn("Demasiados intentos en la normal truncada, retornando punto medio.");
-                return (min + max) / 2;
+    const demanda = generateDemand();
+    const vendidas = Math.min(pedido, demanda);
+    const sobrantes = pedido - vendidas;
+    const insatisfecha = demanda - vendidas;
+    
+    const costoCompra = pedido * COSTO_COMPRA;
+    const ingresoVentas = vendidas * PRECIO_VENTA;
+    const ingresoSobrantes = sobrantes * VALOR_SOBRANTE;
+    const costoVentaPerdida = insatisfecha * COSTO_VENTA_PERDIDA;
+    const gananciaSemana = ingresoVentas + ingresoSobrantes - costoCompra-costoVentaPerdida;
+    
+    totalProfit += gananciaSemana;
+
+    // Actualizar UI
+    weeklyResultsDisplay.innerHTML = `
+        <div style="text-align: center;"><strong>Desempeño de la semana ${weekCounter}</strong></div>
+        <div style="text-align: center;"><strong>Demanda: ${demanda}</strong> unidades.<br>Vendidas: <strong>${vendidas}</strong> und. | Sobrantes: <strong>${sobrantes}</strong> und.</div>
+        <hr class="my-1">
+        <p>Ingreso por Ventas: <strong>${formatearMoneda(ingresoVentas)}</strong></p>
+        <p>Ingreso por Sobrantes: <strong>${formatearMoneda(ingresoSobrantes)}</strong></p>
+        <p class="text-red-600">Costo de Compra: <strong>-${formatearMoneda(costoCompra)}</strong></p>
+        <p class="text-red-600">Costo por Ventas Perdidas: <strong>-${formatearMoneda(costoVentaPerdida)}</strong></p>
+        <p class="text-red-600">Costo de los sobrantes: <strong>-${formatearMoneda(sobrantes*(PRECIO_VENTA-COSTO_COMPRA-VALOR_SOBRANTE))}</strong></p>
+        <hr class="my-1">
+        <div style="text-align: center; font-weight: bold;"> Ganancia de la semana:<br> <span class="${gananciaSemana >= 0 ? 'text-green-600' : 'text-red-600'}">${formatearMoneda(gananciaSemana)}</span></div>
+        <hr class="my-1">
+        ${insatisfecha > 0 ? `<p class="text-orange-500 font-semibold">Dejaste de vender <strong>${insatisfecha}</strong> unidades por falta de stock.</p>` : `<p class="text-green-600 font-semibold">Sobraron <strong>${sobrantes}</strong> unidades por exceso de <i>stock</i>.</p>`}
+    `;
+    weeklyResultsDisplay.classList.remove('hidden');
+
+    totalProfitDisplay.textContent = formatearMoneda(totalProfit);
+    totalProfitDisplay.className = `text-4xl font-bold ${totalProfit >= 0 ? 'profit' : 'loss'}`;
+
+    const newRow = historyTableBody.insertRow(0); // Insertar al principio
+    newRow.innerHTML = `
+        <td class="px-2 py-1 whitespace-nowrap">${weekCounter}</td>
+        <td class="px-2 py-1 whitespace-nowrap">${pedido}</td>
+        <td class="px-2 py-1 whitespace-nowrap">${demanda}</td>
+        <td class="px-2 py-1 whitespace-nowrap font-semibold ${gananciaSemana >= 0 ? 'text-green-600' : 'text-red-600'}">${formatearMoneda(gananciaSemana)}</td>
+    `;
+
+    
+    // Hacer visible el botón de exportar después de la semana 100
+    if (weekCounter === 100) {
+        exportBtn.classList.remove('hidden');
+    }
+
+    weekCounter++;
+    weekCounterDisplay.textContent = weekCounter;
+    orderInput.value = '';
+    orderInput.focus();
+}
+
+submitOrderBtn.addEventListener('click', handleOrderSubmit);
+orderInput.addEventListener('keydown', (e) => e.key === 'Enter' && handleOrderSubmit());
+
+// --- Lógica de Exportación ---
+function downloadCSV(csv, filename) {
+    const csvFile = new Blob([csv], { type: "text/csv" });
+    const downloadLink = document.createElement("a");
+    downloadLink.download = filename;
+    downloadLink.href = window.URL.createObjectURL(csvFile);
+    downloadLink.style.display = "none";
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+}
+
+function exportTableToCSV(filename) {
+    const csv = [];
+    const rows = document.querySelectorAll("#history-table-body tr");
+    
+    // Agregar encabezados
+    const headers = ["Semana", "Pedido", "Demanda", "Ganancia"];
+    csv.push(headers.join(","));
+
+    // Invertir el orden de las filas para exportar en orden cronológico
+    const reversedRows = Array.from(rows).reverse();
+
+    for (const row of reversedRows) {
+        const rowData = [];
+        const cols = row.querySelectorAll("td");
+        cols.forEach((col, index) => {
+            // Limpiar el formato de moneda para la columna de ganancia
+            if (index === 3) {
+                    rowData.push(col.textContent.replace(/[$\s.]/g, '').replace(',', '.'));
+            } else {
+                    rowData.push(col.textContent.trim());
             }
-        } while (val < min || val > max);
-        return val;
+        });
+        csv.push(rowData.join(","));
     }
 
-    // Nueva función para generar variables aleatorias de Laplace(mu, b)
-    function generarLaplace(mu, b) {
-        // Usa el método de la transformada inversa
-        const u = prng.random() - 0.5; // u está en [-0.5, 0.5)
-        return mu - b * Math.sign(u) * Math.log(1 - 2 * Math.abs(u));
-    }
+    downloadCSV(csv.join("\n"), filename);
+}
+
+let yourDate = new Date()
+// const offset = yourDate.getTimezoneOffset()
+// yourDate = new Date(yourDate.getTime() - (offset*60*1000))
+// Colocar la fecha en el formato YYYYMMDD-HHMMSS
+const currentTime = yourDate.toISOString().split('T')[0].replace(/-/g, '') + '-' + yourDate.toTimeString().split(' ')[0].replace(/:/g, '.');
+// const currentDate = yourDate.toISOString().split('T')[0]
+
+exportBtn.addEventListener('click', () => {
+    exportTableToCSV(currentTime+' historial_vendedor.csv');
 });
